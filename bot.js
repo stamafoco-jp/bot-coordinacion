@@ -50,7 +50,8 @@ async function saveTask(task) {
     tipo: task.tipo,
     status: 'pending',
     date: task.deadline || null,
-    nota: ''
+    nota: '',
+    created_date: new Date().toISOString().split('T')[0]
   });
   console.log('Guardando tarea:', body);
   const result = await httpRequest({
