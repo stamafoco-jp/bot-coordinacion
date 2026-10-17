@@ -4,7 +4,7 @@ const TELEGRAM_TOKEN = '8924821773:AAHKa1VS2OWO02H_8yVUtvrxeYCJ3UP60zI';
 const SUPABASE_URL = 'mrguzwanppznmvpxsnqq.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1yZ3V6d2FucHB6bm12cHhzbnFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2ODA3MjYsImV4cCI6MjA5MjI1NjcyNn0.cVPzW5PH1BeH49EefybHVGGTcBHYBa14aS9Z8mKziOo';
 
-const AREAS = ['Marketing','RRHH','Comercial','Adm','IT','Tec','Medios','Agro','Real Estate','Coordinación'];
+const AREAS = ['Marketing','RRHH','Comercial','Administración','IT','Tec','Medios','Agro','Real Estate','Coordinación'];
 const RESPONSABLES = ['Dolo','Jose','Japo','Rafi','Gonza','Raúl','MKT','Coordinación','Lean G','Lean F','Ana Paula','Vero','Albana','Martin Glade','Hernán','Mariana','Gabriela'];
 const TIPOS = ['Seguimiento','Validar','Desarrollar','Revisión','Reunión','Entrega','Prioridad Alta','Otro'];
 
@@ -16,8 +16,8 @@ function httpRequest(options, body) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch(e) { resolve(data); }
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch(e) { resolve({ status: res.statusCode, body: data }); }
       });
     });
     req.on('error', reject);
@@ -33,7 +33,7 @@ function tgRequest(method, params) {
     path: `/bot${TELEGRAM_TOKEN}/${method}`,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-  }, body);
+  }, body).then(r => r.body);
 }
 
 function sendMessage(chatId, text, keyboard) {
@@ -46,13 +46,14 @@ async function saveTask(task) {
   const body = JSON.stringify({
     title: task.titulo,
     area: task.area,
-    responsible: task.responsable,
-    type: task.tipo,
+    person: task.responsable,
+    tipo: task.tipo,
     status: 'Pendiente',
-    deadline: task.deadline || null,
-    notes: ''
+    date: task.deadline || null,
+    nota: ''
   });
-  return httpRequest({
+  console.log('Guardando tarea:', body);
+  const result = await httpRequest({
     hostname: SUPABASE_URL,
     path: '/rest/v1/tasks',
     method: 'POST',
@@ -64,6 +65,8 @@ async function saveTask(task) {
       'Prefer': 'return=minimal'
     }
   }, body);
+  console.log('Supabase status:', result.status);
+  return result;
 }
 
 async function handleMessage(msg) {
@@ -73,7 +76,7 @@ async function handleMessage(msg) {
 
   if (text === '/nueva' || text === '/start') {
     sessions[chatId] = { step: 'titulo' };
-    await sendMessage(chatId, '📝 *Nueva tarea*\n\n¿Cuál es el título?');
+    await sendMessage(chatId, '📝 Nueva tarea\n\n¿Cuál es el título?');
     return;
   }
 
@@ -114,7 +117,7 @@ async function handleMessage(msg) {
     s.step = 'confirmar';
     sessions[chatId] = s;
     await sendMessage(chatId,
-      `✅ *Confirmá la tarea:*\n\n📌 ${s.titulo}\n🏢 ${s.area}\n👤 ${s.responsable}\n🏷️ ${s.tipo}\n📅 ${s.deadline || 'Sin fecha'}`,
+      `Confirmá la tarea:\n\n📌 ${s.titulo}\n🏢 ${s.area}\n👤 ${s.responsable}\n🏷️ ${s.tipo}\n📅 ${s.deadline || 'Sin fecha'}`,
       [['✅ Confirmar'], ['❌ Cancelar']]
     );
     return;
@@ -123,11 +126,16 @@ async function handleMessage(msg) {
   if (s.step === 'confirmar') {
     if (text === '✅ Confirmar') {
       try {
-        await saveTask(s);
-        console.log('Tarea guardada:', s.titulo);
-        await sendMessage(chatId, '🎉 ¡Tarea cargada al tablero!');
+        const result = await saveTask(s);
+        if (result.status >= 200 && result.status < 300) {
+          console.log('Tarea guardada OK:', s.titulo);
+          await sendMessage(chatId, '🎉 ¡Tarea cargada al tablero!');
+        } else {
+          console.error('Error Supabase:', result.status, JSON.stringify(result.body));
+          await sendMessage(chatId, '❌ Error al guardar. Intentá de nuevo con /nueva');
+        }
       } catch(e) {
-        console.error('Error guardando:', e);
+        console.error('Error:', e.message);
         await sendMessage(chatId, '❌ Error al guardar. Intentá de nuevo con /nueva');
       }
     } else {
@@ -144,7 +152,7 @@ let offset = 0;
 async function poll() {
   try {
     const res = await tgRequest('getUpdates', { offset, timeout: 30 });
-    if (res.result && res.result.length > 0) {
+    if (res && res.result && res.result.length > 0) {
       for (const update of res.result) {
         offset = update.update_id + 1;
         if (update.message) await handleMessage(update.message);
@@ -159,4 +167,3 @@ async function poll() {
 
 console.log('🤖 Bot Coordinación GR iniciado');
 poll();
-
