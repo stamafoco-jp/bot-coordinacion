@@ -48,7 +48,7 @@ async function saveTask(task) {
     area: task.area,
     person: task.responsable,
     tipo: task.tipo,
-    status: 'Pendiente',
+    status: 'pending',
     date: task.deadline || null,
     nota: ''
   });
